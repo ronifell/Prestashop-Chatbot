@@ -1,0 +1,6 @@
+.env
+.env.local
+.env.prod
+.env.dev
+/config/settings.inc.php
+/app/config/parameters.php
