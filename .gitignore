@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Environment
+.env
+.env.local
+.env.production
+
+# Logs
+logs/
+*.log
+
+# Build
+dist/
+build/
+
+# Data (user-uploaded files)
+backend/data/imports/*
+backend/data/vademecums/*
+!backend/data/imports/.gitkeep
+!backend/data/vademecums/.gitkeep
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
