@@ -250,7 +250,7 @@ sudo npm install -g pm2
 
 # Create PM2 configuration file
 cd /var/www/mundomascotixIA/backend
-nano ecosystem.config.js
+nano ecosystem.config.cjs
 ```
 
 Paste this configuration:
@@ -284,7 +284,7 @@ Now start the application:
 
 ```bash
 # Start with PM2
-pm2 start ecosystem.config.js
+pm2 start ecosystem.config.cjs
 
 # View status
 pm2 status

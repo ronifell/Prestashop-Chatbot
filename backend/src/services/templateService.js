@@ -49,13 +49,11 @@ Podemos recomendarte los mejores veterinarios de tu zona. Solo indícanos tu có
   // Welcome message
   welcome: {
     type: 'welcome',
-    message: `¡Hola! 👋 Soy **MIA**, tu asistente veterinaria en la tienda.
+    message: `¡Hola! 👋 Soy **MIA**, tu asistente veterinario en MundoMascotix.
 
-Puedo asesorarte sobre nutrición, antiparasitarios, higiene y cuidados generales para tu mascota.
+Te ayudo a elegir el mejor producto para tu mascota. Pregúntame sobre alimentación, antiparasitarios, higiene y más.
 
-❗ **No realizamos diagnósticos ni prescripciones.**
-
-¿En qué puedo ayudarte hoy?`,
+¿En qué puedo ayudarte?`,
   },
 
   // Transition message for mild symptoms

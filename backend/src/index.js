@@ -152,7 +152,7 @@ app.get('/', (_req, res) => {
   // DEVELOPMENT: Return API information
   // In development, access frontend at http://localhost:5173
   res.json({
-    service: 'MIA - Asistente Veterinaria de MundoMascotix',
+    service: 'MIA - Asistente Veterinario de MundoMascotix',
     version: '1.0.0',
     status: 'running',
     environment: config.nodeEnv,
@@ -180,7 +180,7 @@ app.use(errorHandler);
 // START SERVER
 // ============================================================
 
-app.listen(config.port, () => {
+app.listen(config.port, '0.0.0.0',() => {
   logger.info(`🐾 MIA Chatbot Backend running on port ${config.port}`);
   logger.info(`📋 Environment: ${config.nodeEnv}`);
   logger.info(`🔗 Frontend URL: ${config.frontendUrl}`);

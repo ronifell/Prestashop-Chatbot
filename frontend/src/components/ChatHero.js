@@ -63,7 +63,7 @@ function renderHeroHTML() {
               <h1 class="text-2xl md:text-3xl font-bold text-white">
                 MIA
               </h1>
-              <p class="text-teal-100 text-sm">Tu asistente veterinaria</p>
+              <p class="text-teal-100 text-sm">Tu asistente veterinario</p>
             </div>
           </div>
           <p class="text-teal-50 text-sm md:text-base max-w-lg mx-auto">
@@ -80,7 +80,7 @@ function renderHeroHTML() {
               <span class="text-lg">🐾</span>
             </div>
             <div>
-              <h2 class="text-white font-semibold text-sm">MIA - Asistente Veterinaria</h2>
+              <h2 class="text-white font-semibold text-sm">MIA - Asistente Veterinario</h2>
               <div class="flex items-center gap-1">
                 <span class="w-2 h-2 bg-green-400 rounded-full"></span>
                 <span class="text-teal-200 text-xs">En línea</span>
@@ -253,7 +253,7 @@ async function loadWelcomeMessage() {
     // Fallback welcome message
     addMessage(
       'assistant',
-      '¡Hola! 👋 Soy **MIA**, tu asistente veterinaria en la tienda.\n\nPuedo asesorarte sobre nutrición, antiparasitarios, higiene y cuidados generales para tu mascota.\n\n❗ **No realizamos diagnósticos ni prescripciones.**\n\n¿En qué puedo ayudarte hoy?',
+      '¡Hola! 👋 Soy **MIA**, tu asistente veterinario en la tienda.\n\nPuedo asesorarte sobre nutrición, antiparasitarios, higiene y cuidados generales para tu mascota.\n\n❗ **No realizamos diagnósticos ni prescripciones.**\n\n¿En qué puedo ayudarte hoy?',
       { responseType: 'welcome' }
     );
   }

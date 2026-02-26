@@ -140,6 +140,7 @@ export function formatProductsForContext(products) {
     if (p.price) text += ` — ${p.price}€`;
     if (p.species) text += ` | Especie: ${p.species}`;
     if (p.category) text += ` | Categoría: ${p.category}`;
+    if (p.product_url) text += `\n   Enlace: ${p.product_url}`;
     if (p.indications) text += `\n   Indicaciones: ${p.indications}`;
     if (p.requires_prescription) text += '\n   ⚠️ Requiere receta veterinaria';
     return text;

@@ -51,7 +51,7 @@ function renderWidgetHTML() {
           <span class="text-lg">🐾</span>
         </div>
         <div class="flex-1">
-          <h2 class="text-white font-semibold text-sm">MIA - Asistente Veterinaria</h2>
+          <h2 class="text-white font-semibold text-sm">MIA - Asistente Veterinario</h2>
           <div class="flex items-center gap-1">
             <span class="w-2 h-2 bg-green-400 rounded-full"></span>
             <span class="text-teal-200 text-xs">En línea</span>
@@ -152,7 +152,7 @@ async function loadWidgetWelcome() {
   } catch (_) {
     addWidgetMessage(
       'assistant',
-      '¡Hola! 👋 Soy **MIA**, tu asistente veterinaria.\n\n¿En qué puedo ayudarte?'
+      '¡Hola! 👋 Soy **MIA**, tu asistente veterinario.\n\n¿En qué puedo ayudarte?'
     );
   }
 }
