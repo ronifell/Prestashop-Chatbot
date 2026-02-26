@@ -142,7 +142,6 @@ export function formatProductsForContext(products) {
     if (p.category) text += ` | Categoría: ${p.category}`;
     if (p.indications) text += `\n   Indicaciones: ${p.indications}`;
     if (p.requires_prescription) text += '\n   ⚠️ Requiere receta veterinaria';
-    if (p.product_url) text += `\n   🔗 Ver producto: ${p.product_url}`;
     return text;
   }).join('\n\n');
 }

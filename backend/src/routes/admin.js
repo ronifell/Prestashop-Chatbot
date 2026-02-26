@@ -125,28 +125,26 @@ router.put('/prompts/:name', async (req, res) => {
       return res.status(400).json({ success: false, error: 'content es obligatorio' });
     }
 
-    // Get current version
-    const current = await query(
-      'SELECT version FROM system_prompts WHERE name = $1 ORDER BY version DESC LIMIT 1',
-      [req.params.name]
-    );
-
-    const newVersion = current.rows.length > 0 ? current.rows[0].version + 1 : 1;
-
-    // Deactivate old versions
-    await query(
-      'UPDATE system_prompts SET is_active = false WHERE name = $1',
-      [req.params.name]
-    );
-
-    // Insert new version
+    // Update existing prompt in place (name has UNIQUE constraint)
     const result = await query(
-      `INSERT INTO system_prompts (name, content, is_active, version)
-       VALUES ($1, $2, true, $3) RETURNING *`,
-      [req.params.name, content, newVersion]
+      `UPDATE system_prompts
+       SET content = $1, version = version + 1, is_active = true, updated_at = NOW()
+       WHERE name = $2 RETURNING *`,
+      [content, req.params.name]
     );
 
-    logger.info('System prompt updated', { name: req.params.name, version: newVersion });
+    if (result.rows.length === 0) {
+      // Prompt doesn't exist yet — create it
+      const insertResult = await query(
+        `INSERT INTO system_prompts (name, content, is_active, version)
+         VALUES ($1, $2, true, 1) RETURNING *`,
+        [req.params.name, content]
+      );
+      logger.info('System prompt created', { name: req.params.name, version: 1 });
+      return res.status(201).json({ success: true, data: insertResult.rows[0] });
+    }
+
+    logger.info('System prompt updated', { name: req.params.name, version: result.rows[0].version });
     res.json({ success: true, data: result.rows[0] });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
