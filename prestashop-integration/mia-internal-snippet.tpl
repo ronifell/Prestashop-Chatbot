@@ -11,5 +11,14 @@
 
 {* Widget flotante - NO incluir si la homepage ya tiene el hero *}
 {if $page.page_name != 'index'}
-  <script type="module" src="http://212.227.108.25:5173/src/main.js"></script>
+  {* 
+   * PRODUCCIÓN: Cargar el chatbot desde el VPS
+   * Reemplaza http://212.227.108.25:3001 con tu URL de VPS
+   * Actualiza el hash del archivo después de hacer 'npm run build'
+   *}
+  <script>
+    // Configurar la URL del backend API si es necesario (ver mia-homepage-snippet.tpl)
+    // window.MIA_API_BASE = 'http://212.227.108.25:3001/api';
+  </script>
+  <script type="module" src="http://212.227.108.25:3001/assets/mia-chat-[hash].js"></script>
 {/if}

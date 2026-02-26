@@ -13,10 +13,22 @@
 {* Hero Chat Block - visible al cargar la página principal *}
 <div id="mia-chat-hero"></div>
 
-{* Cargar estilos y script del chatbot *}
-<link rel="stylesheet" href="http://212.227.108.25:5173/src/style.css" />
-<script type="module" src="http://212.227.108.25:5173/src/main.js"></script>
+{* 
+ * PRODUCCIÓN: Cargar el chatbot desde el VPS
+ * Reemplaza http://212.227.108.25:3001 con tu URL de VPS
+ * Si usas HTTPS, cambia a https://
+ *}
+<script>
+  // Configurar la URL del backend API si es diferente del dominio actual
+  // Si el frontend se carga desde el mismo dominio que el backend, no es necesario
+  // Si se carga desde PrestaShop (diferente dominio), descomenta y ajusta:
+  // window.MIA_API_BASE = 'http://212.227.108.25:3001/api';
+</script>
+<link rel="stylesheet" href="http://212.227.108.25:3001/assets/mia-chat-[hash].css" />
+<script type="module" src="http://212.227.108.25:3001/assets/mia-chat-[hash].js"></script>
 
-{* En producción (tras hacer build), usa las rutas del dist: *}
-{* <link rel="stylesheet" href="http://212.227.108.25:3001/assets/mia-chat.css" /> *}
-{* <script type="module" src="http://212.227.108.25:3001/assets/mia-chat.js"></script> *}
+{* 
+ * NOTA: Los archivos tienen hash en el nombre (ej: mia-chat-a1b2c3.js)
+ * Después de hacer 'npm run build' en frontend/, actualiza los nombres de archivo aquí
+ * O mejor aún, usa un script que inyecte automáticamente los nombres correctos
+ *}

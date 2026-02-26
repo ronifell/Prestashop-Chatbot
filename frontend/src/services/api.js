@@ -1,9 +1,17 @@
 /**
  * API Service
  * Handles all communication with the MIA backend.
+ * 
+ * DEVELOPMENT: Uses relative path '/api' which works with Vite proxy
+ * PRODUCTION: 
+ *   - If frontend served from same domain as backend: uses '/api' (relative)
+ *   - If frontend loaded from PrestaShop (different domain): set window.MIA_API_BASE
+ *     to full backend URL (e.g., 'http://your-vps:3001/api')
+ * 
+ * To configure for PrestaShop integration, add this before loading the script:
+ * <script>window.MIA_API_BASE = 'http://your-vps:3001/api';</script>
  */
-
-const API_BASE = '/api';
+const API_BASE = window.MIA_API_BASE || '/api';
 
 /**
  * Send a chat message

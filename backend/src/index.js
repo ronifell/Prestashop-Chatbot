@@ -4,7 +4,7 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { mkdirSync } from 'fs';
+import { mkdirSync, existsSync } from 'fs';
 
 import config from './config/index.js';
 import logger from './utils/logger.js';
@@ -43,14 +43,31 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' },
 }));
 
-// CORS
+// CORS Configuration
+// ============================================================
+// DEVELOPMENT: Allows localhost for local development
+// PRODUCTION: Adds PrestaShop domain from config
+// ============================================================
+const corsOrigins = [
+  config.frontendUrl,
+  // Local development URLs (preserved for local dev)
+  'http://localhost:5173',  // Vite dev server
+  'http://localhost:3000',  // Alternative local port
+  /\.mundomascotix\.com$/,  // PrestaShop domain pattern
+];
+
+// Add PrestaShop URL from config if provided (production)
+if (config.prestashop?.url) {
+  try {
+    const prestashopUrl = new URL(config.prestashop.url);
+    corsOrigins.push(prestashopUrl.origin);
+  } catch (_) {
+    // Invalid URL, skip
+  }
+}
+
 app.use(cors({
-  origin: [
-    config.frontendUrl,
-    'http://localhost:5173',
-    'http://localhost:3000',
-    /\.mundomascotix\.com$/,
-  ],
+  origin: corsOrigins,
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true,
@@ -101,12 +118,47 @@ app.use('/api/clinics', clinicRoutes);
 app.use('/api/admin', adminLimiter, adminRoutes);
 app.use('/api/import', adminLimiter, importRoutes);
 
+// ============================================================
+// STATIC FILE SERVING
+// ============================================================
+// PRODUCTION: Serve built frontend from dist folder
+// DEVELOPMENT: Frontend is served by Vite dev server (port 5173)
+//              This section is disabled in development
+// ============================================================
+if (config.nodeEnv === 'production') {
+  const frontendDistPath = join(__dirname, '../../frontend/dist');
+  if (existsSync(frontendDistPath)) {
+    app.use(express.static(frontendDistPath));
+    logger.info(`📦 Serving frontend from: ${frontendDistPath}`);
+  } else {
+    logger.warn(`⚠️  Frontend dist folder not found at ${frontendDistPath}. Run 'npm run build' in frontend/`);
+  }
+} else {
+  // DEVELOPMENT: Frontend is served separately by Vite
+  logger.info('🔧 Development mode: Frontend served by Vite dev server on port 5173');
+}
+
 // Root endpoint
 app.get('/', (_req, res) => {
+  // PRODUCTION: Serve the frontend index.html if available
+  // DEVELOPMENT: Return API info (frontend is on Vite dev server)
+  if (config.nodeEnv === 'production') {
+    const indexPath = join(__dirname, '../../frontend/dist/index.html');
+    if (existsSync(indexPath)) {
+      return res.sendFile(indexPath);
+    }
+  }
+  
+  // DEVELOPMENT: Return API information
+  // In development, access frontend at http://localhost:5173
   res.json({
     service: 'MIA - Asistente Veterinaria de MundoMascotix',
     version: '1.0.0',
     status: 'running',
+    environment: config.nodeEnv,
+    note: config.nodeEnv === 'development' 
+      ? 'Frontend available at http://localhost:5173' 
+      : 'Frontend served from this server',
     endpoints: {
       chat: '/api/chat',
       products: '/api/products',
