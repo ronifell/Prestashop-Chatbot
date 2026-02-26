@@ -2,7 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { query, getClient } from '../config/database.js';
 import { detectRedFlags } from './redFlagService.js';
 import { getTemplate, getWelcomeMessage } from './templateService.js';
-import { searchProducts, formatProductsForContext, formatProductCard } from './productService.js';
+import { searchProducts, formatProductsForContext, formatProductCard, broadCategorySearch, validateProductNamesInResponse } from './productService.js';
 import { findClinicsByPostalCode, formatClinicsForChat, extractPostalCode, formatClinicCard } from './clinicService.js';
 import { searchVademecums } from './vademecumService.js';
 import { generateChatResponse } from './openaiService.js';
@@ -100,7 +100,14 @@ export async function processMessage({ sessionId, message, conversationId, produ
   let catalogContext = '';
   let recommendedProducts = [];
   try {
-    const products = await searchProducts(message, { limit: 5 });
+    let products = await searchProducts(message, { limit: 5 });
+
+    // If no products found with primary search, try broader category search
+    if (products.length === 0) {
+      logger.info('No products found with primary search, trying broad category search', { message });
+      products = await broadCategorySearch(message, 5);
+    }
+
     if (products.length > 0) {
       catalogContext = formatProductsForContext(products);
       recommendedProducts = products.map(formatProductCard);
@@ -139,21 +146,34 @@ export async function processMessage({ sessionId, message, conversationId, produ
     vademecumContext
   );
 
-  // 12. Save assistant response
+  // 12. Post-validate: ensure product names in the response match DB exactly
+  let validatedMessage = aiResponse.message;
+  if (recommendedProducts.length > 0) {
+    try {
+      validatedMessage = await validateProductNamesInResponse(
+        aiResponse.message,
+        recommendedProducts
+      );
+    } catch (err) {
+      logger.warn('Product name validation failed, using original response', { error: err.message });
+    }
+  }
+
+  // 13. Save assistant response
   const productIds = recommendedProducts.map(p => p.id);
-  await saveMessage(convId, 'assistant', aiResponse.message, {
+  await saveMessage(convId, 'assistant', validatedMessage, {
     responseType: 'normal',
     tokensUsed: aiResponse.tokensUsed,
     processingTimeMs: aiResponse.processingTimeMs,
     productsRecommended: productIds,
   });
 
-  // 13. Update conversation
+  // 14. Update conversation
   await updateConversation(convId);
 
   return {
     conversationId: convId,
-    message: aiResponse.message,
+    message: validatedMessage,
     responseType: 'normal',
     products: recommendedProducts,
     clinics: [],
