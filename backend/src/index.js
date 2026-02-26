@@ -38,6 +38,10 @@ const app = express();
 // MIDDLEWARE
 // ============================================================
 
+// Trust proxy (required when behind Nginx/reverse proxy)
+// This allows express-rate-limit to correctly read client IPs from X-Forwarded-For
+app.set('trust proxy', 1);
+
 // Security headers
 app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' },
