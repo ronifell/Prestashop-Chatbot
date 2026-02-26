@@ -25,7 +25,7 @@ Este documento recopila **todos los tipos de mensaje** que un cliente podría en
 
 | # | Acción | Respuesta esperada | Tipo |
 |---|--------|--------------------|------|
-| 1.1 | El usuario abre el chat (carga la página) | `¡Hola! 👋 Soy **MIA**, tu asistente veterinaria en la tienda. Puedo asesorarte sobre nutrición, antiparasitarios, higiene y cuidados generales para tu mascota. ❗ **No realizamos diagnósticos ni prescripciones.** ¿En qué puedo ayudarte hoy?` | `welcome` |
+| 1.1 | El usuario abre el chat (carga la página) | `¡Hola! 👋 Soy **MIA**, tu asistente veterinario en la tienda. Puedo asesorarte sobre nutrición, antiparasitarios, higiene y cuidados generales para tu mascota. ❗ **No realizamos diagnósticos ni prescripciones.** ¿En qué puedo ayudarte hoy?` | `welcome` |
 
 ---
 
@@ -308,7 +308,7 @@ Estos mensajes no contienen ni red flags, ni solicitudes médicas, ni CP. Van di
 |---|--------------------|--------------------|
 | 9.1 | `Hola` | Saludo amable + "¿En qué puedo ayudarte?" |
 | 9.2 | `Gracias` | "De nada, si necesitas algo más aquí estoy" |
-| 9.3 | `¿Quién eres?` | Presentación: "Soy MIA, tu asistente veterinaria de MundoMascotix..." |
+| 9.3 | `¿Quién eres?` | Presentación: "Soy MIA, tu asistente veterinario de MundoMascotix..." |
 | 9.4 | `¿Hacéis envíos a Canarias?` | Respuesta de OpenAI basada en el system prompt (MIA no tiene esa información, probablemente indicará consultar la web de la tienda) |
 | 9.5 | `¿Cuál es vuestro horario?` | Similar al anterior: MIA no dispone de esa información, redirigirá a la web |
 | 9.6 | `¿Puedo devolver un producto?` | MIA no gestiona devoluciones; redirigirá al servicio de atención al cliente |

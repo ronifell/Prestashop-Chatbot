@@ -1,6 +1,6 @@
-# 🐾 MIA — Asistente Veterinaria de MundoMascotix
+# 🐾 MIA — Asistente Veterinario de MundoMascotix
 
-**MIA** (MundoMascotix Intelligent Assistant) es un chatbot profesional de IA integrado en la tienda PrestaShop de MundoMascotix. Actúa como una **asistente farmacéutica veterinaria**: orienta a los clientes antes de comprar (antiparasitarios, nutrición, higiene, suplementos, etc.) con filtros y límites de seguridad (no diagnostica, no prescribe, no dosifica medicamentos con receta).
+**MIA** (MundoMascotix Intelligent Assistant) es un chatbot profesional de IA integrado en la tienda PrestaShop de MundoMascotix. Actúa como un **asistente farmacéutico veterinario**: orienta a los clientes antes de comprar (antiparasitarios, nutrición, higiene, suplementos, etc.) con filtros y límites de seguridad (no diagnostica, no prescribe, no dosifica medicamentos con receta).
 
 ---
 
