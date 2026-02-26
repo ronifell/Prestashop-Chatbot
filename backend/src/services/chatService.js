@@ -159,8 +159,13 @@ export async function processMessage({ sessionId, message, conversationId, produ
     }
   }
 
-  // 13. Save assistant response
-  const productIds = recommendedProducts.map(p => p.id);
+  // 13. Filter product cards: only show products the AI actually mentioned in its response.
+  //     If the AI asked a clarifying question (e.g. "Dime raza, años...") without
+  //     recommending specific products, do NOT show product cards to the user.
+  const mentionedProducts = filterMentionedProducts(validatedMessage, recommendedProducts);
+
+  // 14. Save assistant response
+  const productIds = mentionedProducts.map(p => p.id);
   await saveMessage(convId, 'assistant', validatedMessage, {
     responseType: 'normal',
     tokensUsed: aiResponse.tokensUsed,
@@ -168,18 +173,68 @@ export async function processMessage({ sessionId, message, conversationId, produ
     productsRecommended: productIds,
   });
 
-  // 14. Update conversation
+  // 15. Update conversation
   await updateConversation(convId);
 
   return {
     conversationId: convId,
     message: validatedMessage,
     responseType: 'normal',
-    products: recommendedProducts,
+    products: mentionedProducts,
     clinics: [],
     tokensUsed: aiResponse.tokensUsed,
     processingTimeMs: Date.now() - startTime,
   };
+}
+
+/**
+ * Filter product cards to only include products the AI actually mentioned in its response.
+ * This prevents showing product cards when the AI is asking clarifying questions
+ * (e.g. "Dime raza, años y si tiene alguna patología") without recommending anything.
+ * @param {string} responseText - The AI's response text
+ * @param {Array} products - All products that were sent as context
+ * @returns {Array} - Only products that are referenced in the response
+ */
+function filterMentionedProducts(responseText, products) {
+  if (!responseText || !products || products.length === 0) return [];
+
+  const responseLower = responseText.toLowerCase();
+
+  // Check if the response contains any product-related content
+  // (links, product names, prices, etc.)
+  const hasProductLinks = responseText.includes('](http') || responseText.includes('](https');
+  const hasProductMention = products.some(p => {
+    const nameLower = p.name.toLowerCase();
+    // Check for exact name match
+    if (responseLower.includes(nameLower)) return true;
+    // Check for significant words from the product name (at least 3 words matching)
+    const nameWords = nameLower.split(/\s+/).filter(w => w.length > 3);
+    if (nameWords.length >= 2) {
+      const matchCount = nameWords.filter(w => responseLower.includes(w)).length;
+      return matchCount >= Math.ceil(nameWords.length * 0.6);
+    }
+    return false;
+  });
+
+  // If the AI didn't mention any products, return empty array (no cards)
+  if (!hasProductLinks && !hasProductMention) {
+    logger.debug('AI response does not mention products — suppressing product cards');
+    return [];
+  }
+
+  // Return only the products that are actually mentioned
+  return products.filter(p => {
+    const nameLower = p.name.toLowerCase();
+    // Exact name match in response
+    if (responseLower.includes(nameLower)) return true;
+    // Significant word overlap
+    const nameWords = nameLower.split(/\s+/).filter(w => w.length > 3);
+    if (nameWords.length >= 2) {
+      const matchCount = nameWords.filter(w => responseLower.includes(w)).length;
+      return matchCount >= Math.ceil(nameWords.length * 0.6);
+    }
+    return false;
+  });
 }
 
 /**
