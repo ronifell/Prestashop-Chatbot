@@ -9,7 +9,7 @@ import logger from '../utils/logger.js';
 /**
  * Find clinics by postal code (exact match)
  * @param {string} postalCode - 5-digit Spanish postal code
- * @returns {Array} - Array of clinic objects
+ * @returns {Object} - Object with clinics array and isExactMatch boolean
  */
 export async function findClinicsByPostalCode(postalCode) {
   const cleanCode = postalCode.replace(/\s/g, '').substring(0, 5);
@@ -24,7 +24,7 @@ export async function findClinicsByPostalCode(postalCode) {
 
   if (result.rows.length > 0) {
     logger.info('Clinics found by postal code', { postalCode: cleanCode, count: result.rows.length });
-    return result.rows;
+    return { clinics: result.rows, isExactMatch: true };
   }
 
   // If no exact match, try prefix match (first 2 digits = province)
@@ -39,7 +39,7 @@ export async function findClinicsByPostalCode(postalCode) {
   );
 
   logger.info('Clinics found by province prefix', { prefix: provincePrefix, count: resultProvince.rows.length });
-  return resultProvince.rows;
+  return { clinics: resultProvince.rows, isExactMatch: false };
 }
 
 /**

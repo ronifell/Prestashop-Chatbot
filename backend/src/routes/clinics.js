@@ -20,11 +20,12 @@ router.get('/:postalCode', async (req, res) => {
       });
     }
 
-    const clinics = await findClinicsByPostalCode(postalCode);
+    const result = await findClinicsByPostalCode(postalCode);
     res.json({
       success: true,
-      data: clinics,
-      count: clinics.length,
+      data: result.clinics,
+      count: result.clinics.length,
+      isExactMatch: result.isExactMatch,
     });
   } catch (error) {
     logger.error('Clinic lookup error', { error: error.message });

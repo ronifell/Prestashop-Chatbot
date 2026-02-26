@@ -311,7 +311,26 @@ async function handleRxLimit(conversationId) {
  * Handle postal code lookup for clinic recommendations
  */
 async function handlePostalCodeLookup(conversationId, postalCode) {
-  const clinics = await findClinicsByPostalCode(postalCode);
+  const result = await findClinicsByPostalCode(postalCode);
+  const { clinics, isExactMatch } = result;
+
+  // If no exact match, return the specific message requesting email
+  if (!isExactMatch) {
+    const noClinicMessage = '¡Ups! 🐾\n\nTodavía no hemos evaluado ninguna clínica veterinaria en tu zona para poder recomendártela con total confianza.\n\nSi quieres, déjanos tu email y te avisamos en cuanto una clínica de tu área supere nuestro control de calidad ✅✨\n\nAsí serás el primero en enterarte.';
+    
+    await saveMessage(conversationId, 'assistant', noClinicMessage, {
+      responseType: 'clinic_recommendation',
+    });
+
+    return {
+      message: noClinicMessage,
+      responseType: 'clinic_recommendation',
+      products: [],
+      clinics: [],
+    };
+  }
+
+  // If exact match found, format and return clinics
   const clinicText = formatClinicsForChat(clinics);
   const clinicCards = clinics.map(formatClinicCard);
 
