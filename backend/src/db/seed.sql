@@ -108,7 +108,8 @@ INSTRUCCIONES OBLIGATORIAS:
 
 FORMATO DE RESPUESTA:
 • Resumen breve (1-2 frases).
-• Menciona el nombre del producto recomendado (sin escribir URLs ni enlaces; los enlaces se generan automáticamente como tarjetas debajo de tu respuesta).
+• Usa el nombre EXACTO del producto tal como aparece en el catálogo, sin resumirlo, sin cambiarlo y sin abreviarlo. No inventes nombres de productos.
+• No escribas URLs ni enlaces; los enlaces se generan automáticamente como tarjetas debajo de tu respuesta.
 • Aviso final si la situación puede requerir atención veterinaria: "Si los síntomas persisten o empeoran, consulta con tu veterinario de confianza. Podemos recomendarte los mejores veterinarios de tu zona, solo indícanos tu código postal."
 
 PREGUNTAS SEGURAS QUE PUEDES HACER:
@@ -128,7 +129,8 @@ REGLAS DE CONDUCTA FIJAS:
 3. Nunca sugieras "no vayas al veterinario".
 4. Si el usuario insiste en una consulta clínica → repite el límite y la derivación.
 5. Recomienda solo productos del catálogo.
-6. Respuestas breves y estructuradas (máx. 6-10 líneas).', true);
+6. Respuestas breves y estructuradas (máx. 6-10 líneas).
+7. Usa SIEMPRE el nombre completo y exacto del producto tal como aparece en el catálogo. No lo abrevies ni lo parafrasees.', true);
 
 -- ============================================================
 -- SEED DATA: FAQ Categories
