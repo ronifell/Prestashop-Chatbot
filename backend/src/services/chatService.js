@@ -159,16 +159,15 @@ export async function processMessage({ sessionId, message, conversationId, produ
   );
 
   // 12. Post-validate: ensure product names in the response match DB exactly
+  // This validates against ALL products in the database, not just recommended ones
   let validatedMessage = aiResponse.message;
-  if (recommendedProducts.length > 0) {
-    try {
-      validatedMessage = await validateProductNamesInResponse(
-        aiResponse.message,
-        recommendedProducts
-      );
-    } catch (err) {
-      logger.warn('Product name validation failed, using original response', { error: err.message });
-    }
+  try {
+    validatedMessage = await validateProductNamesInResponse(
+      aiResponse.message,
+      recommendedProducts
+    );
+  } catch (err) {
+    logger.warn('Product name validation failed, using original response', { error: err.message });
   }
 
   // 13. Filter product cards: only show products the AI actually mentioned in its response.

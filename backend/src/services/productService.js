@@ -178,62 +178,191 @@ export async function getAllProductNames() {
 
 /**
  * Validate and correct product names in the AI response.
- * If the AI mentioned a product name that doesn't exactly match the DB,
- * find the closest matching product name from the DB and replace it.
+ * Checks ALL product mentions against the full database, not just recommended products.
+ * Removes or corrects any product mentions that don't exist in the database.
  * @param {string} responseText - The AI's response text
- * @param {Array} recommendedProducts - Products that were sent as context
+ * @param {Array} recommendedProducts - Products that were sent as context (for URL matching)
  * @returns {string} - Corrected response text
  */
-export async function validateProductNamesInResponse(responseText, recommendedProducts) {
-  if (!responseText || !recommendedProducts || recommendedProducts.length === 0) {
+export async function validateProductNamesInResponse(responseText, recommendedProducts = []) {
+  if (!responseText) return responseText;
+
+  // Get ALL products from database for comprehensive validation
+  const allProducts = await getAllProductNames();
+  if (allProducts.length === 0) {
+    logger.warn('No products in database for validation');
     return responseText;
   }
 
-  const allProducts = await getAllProductNames();
-  if (allProducts.length === 0) return responseText;
+  // Create maps for fast lookup
+  const productMap = new Map();
+  const productNameLowerMap = new Map();
+  allProducts.forEach(p => {
+    productMap.set(p.name, p);
+    productNameLowerMap.set(p.name.toLowerCase(), p.name);
+  });
 
-  const allProductNames = allProducts.map(p => p.name);
+  // Create map of recommended products for URL matching
+  const recommendedMap = new Map();
+  recommendedProducts.forEach(p => {
+    recommendedMap.set(p.name.toLowerCase(), p);
+  });
 
   let correctedText = responseText;
+  const lines = correctedText.split('\n');
+  const invalidProducts = [];
 
-  // Check each recommended product — if the AI used a slightly different name,
-  // replace it with the exact DB name
-  for (const product of recommendedProducts) {
-    const exactName = product.name;
-    // The product name should appear in the response; if it does, it's correct
-    if (correctedText.includes(exactName)) continue;
+  // Extract product mentions from the response
+  // Pattern 1: Markdown links [Product Name](url)
+  const linkPattern = /\[([^\]]+)\]\(([^)]+)\)/g;
+  // Pattern 2: Bold text **Product Name**
+  const boldPattern = /\*\*([^*]+)\*\*/g;
+  // Pattern 3: Numbered list items "1. Product Name -"
+  const numberedPattern = /^\s*\d+\.\s+([^-]+?)(?:\s*-|$)/gm;
 
-    // Check if the AI used a shortened or modified version of the name
-    // by looking for partial matches of the DB product name in the response
-    const nameWords = exactName.toLowerCase().split(/\s+/).filter(w => w.length > 3);
-    if (nameWords.length < 2) continue;
+  // Track all potential product mentions
+  const productMentions = new Set();
 
-    // Look for sequences in the response that partially match this product name
-    // (AI might have abbreviated it)
-    const lines = correctedText.split('\n');
-    for (let i = 0; i < lines.length; i++) {
-      const lineLower = lines[i].toLowerCase();
-      const matchingWords = nameWords.filter(w => lineLower.includes(w));
-      // If more than half the significant words match, replace with exact name
-      if (matchingWords.length >= Math.ceil(nameWords.length * 0.5) && matchingWords.length >= 2) {
-        // Find the approximate position and replace with exact name + link
-        // Look for markdown links or bold text that might contain the modified name
-        const linkPattern = /\[([^\]]+)\]\(([^)]+)\)/g;
-        let match;
-        while ((match = linkPattern.exec(lines[i])) !== null) {
-          const linkText = match[1].toLowerCase();
-          const linkMatchWords = nameWords.filter(w => linkText.includes(w));
-          if (linkMatchWords.length >= Math.ceil(nameWords.length * 0.5) && linkMatchWords.length >= 2) {
-            const productUrl = product.product_url || match[2];
-            lines[i] = lines[i].replace(match[0], `[${exactName}](${productUrl})`);
-          }
-        }
-      }
+  // Extract from markdown links
+  let match;
+  while ((match = linkPattern.exec(responseText)) !== null) {
+    const mentionedName = match[1].trim();
+    if (mentionedName.length > 3) {
+      productMentions.add(mentionedName);
     }
-    correctedText = lines.join('\n');
   }
 
-  return correctedText;
+  // Extract from bold text
+  while ((match = boldPattern.exec(responseText)) !== null) {
+    const mentionedName = match[1].trim();
+    if (mentionedName.length > 3) {
+      productMentions.add(mentionedName);
+    }
+  }
+
+  // Extract from numbered lists
+  while ((match = numberedPattern.exec(responseText)) !== null) {
+    const mentionedName = match[1].trim();
+    if (mentionedName.length > 3) {
+      productMentions.add(mentionedName);
+    }
+  }
+
+  // Validate each mention
+  for (const mentionedName of productMentions) {
+    const mentionedLower = mentionedName.toLowerCase();
+    
+    // Check if it's an exact match (case-insensitive)
+    if (productNameLowerMap.has(mentionedLower)) {
+      const exactName = productNameLowerMap.get(mentionedLower);
+      // Replace with exact name if different
+      if (exactName !== mentionedName) {
+        correctedText = correctedText.replace(
+          new RegExp(escapeRegex(mentionedName), 'g'),
+          exactName
+        );
+        logger.debug('Corrected product name', { from: mentionedName, to: exactName });
+      }
+      continue;
+    }
+
+    // Check for partial/fuzzy matches in recommended products
+    let bestMatch = null;
+    let bestScore = 0;
+
+    for (const [dbNameLower, dbName] of productNameLowerMap.entries()) {
+      // Calculate similarity score
+      const score = calculateNameSimilarity(mentionedLower, dbNameLower);
+      if (score > bestScore && score > 0.6) {
+        bestScore = score;
+        bestMatch = dbName;
+      }
+    }
+
+    if (bestMatch) {
+      // Replace with best matching product name
+      correctedText = correctedText.replace(
+        new RegExp(escapeRegex(mentionedName), 'g'),
+        bestMatch
+      );
+      logger.debug('Fuzzy matched product name', { from: mentionedName, to: bestMatch, score: bestScore });
+    } else {
+      // No match found - this is an invalid product
+      invalidProducts.push(mentionedName);
+      logger.warn('Invalid product mentioned by AI', { productName: mentionedName });
+      
+      // Remove the invalid product mention (remove the entire line if it's a numbered list item)
+      const linePattern = new RegExp(`^\\s*\\d+\\.\\s*${escapeRegex(mentionedName)}[^\\n]*$`, 'gmi');
+      correctedText = correctedText.replace(linePattern, '');
+      
+      // Also remove markdown links with invalid products
+      const invalidLinkPattern = new RegExp(`\\[${escapeRegex(mentionedName)}\\]\\([^)]+\\)`, 'g');
+      correctedText = correctedText.replace(invalidLinkPattern, '');
+    }
+  }
+
+  // Clean up empty lines that might have been left
+  correctedText = correctedText.split('\n')
+    .filter(line => line.trim().length > 0 || line.match(/^\s*$/))
+    .join('\n');
+
+  // Update markdown links with correct URLs from recommended products
+  // Create a fresh pattern for replace (since exec() modifies global regex state)
+  const linkPatternForReplace = /\[([^\]]+)\]\(([^)]+)\)/g;
+  correctedText = correctedText.replace(linkPatternForReplace, (match, linkText, url) => {
+    const product = productMap.get(linkText) || recommendedMap.get(linkText.toLowerCase());
+    if (product) {
+      // Handle both snake_case (from DB) and camelCase (from formatProductCard)
+      const productUrl = product.product_url || product.productUrl;
+      if (productUrl) {
+        return `[${linkText}](${productUrl})`;
+      }
+    }
+    return match;
+  });
+
+  if (invalidProducts.length > 0) {
+    logger.warn('Removed invalid product mentions from AI response', { 
+      invalidProducts,
+      responseLength: responseText.length 
+    });
+  }
+
+  return correctedText.trim();
+}
+
+/**
+ * Calculate similarity between two product names (0-1 scale)
+ */
+function calculateNameSimilarity(name1, name2) {
+  // Exact match
+  if (name1 === name2) return 1.0;
+  
+  // Check if one contains the other
+  if (name1.includes(name2) || name2.includes(name1)) {
+    const shorter = name1.length < name2.length ? name1 : name2;
+    const longer = name1.length >= name2.length ? name1 : name2;
+    return shorter.length / longer.length;
+  }
+
+  // Word-based similarity
+  const words1 = name1.split(/\s+/).filter(w => w.length > 2);
+  const words2 = name2.split(/\s+/).filter(w => w.length > 2);
+  
+  if (words1.length === 0 || words2.length === 0) return 0;
+  
+  const matchingWords = words1.filter(w1 => 
+    words2.some(w2 => w1.includes(w2) || w2.includes(w1))
+  );
+  
+  return matchingWords.length / Math.max(words1.length, words2.length);
+}
+
+/**
+ * Escape special regex characters in a string
+ */
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 /**
