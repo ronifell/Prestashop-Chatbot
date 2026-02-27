@@ -96,16 +96,23 @@ export async function processMessage({ sessionId, message, conversationId, produ
     };
   }
 
-  // 7. Search for relevant products in catalog
+  // 7. Build conversation history for OpenAI (needed for product search context)
+  const history = await getConversationHistory(convId);
+
+  // 8. Search for relevant products in catalog using conversation context
   let catalogContext = '';
   let recommendedProducts = [];
   try {
-    let products = await searchProducts(message, { limit: 5 });
+    // Extract search terms from conversation history to build better query
+    const searchTerms = extractSearchTermsFromConversation(history, message);
+    logger.debug('Product search terms extracted', { originalMessage: message, searchTerms });
+
+    let products = await searchProducts(searchTerms, { limit: 5 });
 
     // If no products found with primary search, try broader category search
     if (products.length === 0) {
-      logger.info('No products found with primary search, trying broad category search', { message });
-      products = await broadCategorySearch(message, 5);
+      logger.info('No products found with primary search, trying broad category search', { searchTerms });
+      products = await broadCategorySearch(searchTerms, 5);
     }
 
     if (products.length > 0) {
@@ -116,7 +123,7 @@ export async function processMessage({ sessionId, message, conversationId, produ
     logger.warn('Product search failed during chat', { error: err.message });
   }
 
-  // 8. Search vademecums for technical info
+  // 9. Search vademecums for technical info
   let vademecumContext = '';
   try {
     const vademecumResults = await searchVademecums(message);
@@ -128,9 +135,6 @@ export async function processMessage({ sessionId, message, conversationId, produ
   } catch (err) {
     logger.warn('Vademecum search failed during chat', { error: err.message });
   }
-
-  // 9. Build conversation history for OpenAI
-  const history = await getConversationHistory(convId);
 
   // 10. Format product context string
   let productCtxStr = '';
@@ -409,6 +413,96 @@ async function getConversationHistory(conversationId) {
     [conversationId]
   );
   return result.rows;
+}
+
+/**
+ * Extract relevant search terms from conversation history
+ * Combines context from previous messages with current message to build better product search queries
+ * @param {Array} history - Conversation history array with { role, content }
+ * @param {string} currentMessage - Current user message
+ * @returns {string} - Optimized search query string
+ */
+function extractSearchTermsFromConversation(history, currentMessage) {
+  // Combine all user messages to extract relevant keywords
+  const allUserMessages = history
+    .filter(msg => msg.role === 'user')
+    .map(msg => msg.content)
+    .join(' ');
+  
+  const combined = `${allUserMessages} ${currentMessage}`.toLowerCase();
+  
+  // Extract species
+  const species = [];
+  if (combined.includes('perro') || combined.includes('can') || combined.includes('perros')) {
+    species.push('perro');
+  }
+  if (combined.includes('gato') || combined.includes('felino') || combined.includes('gatos')) {
+    species.push('gato');
+  }
+  
+  // Extract food-related terms
+  const foodTerms = [];
+  if (combined.includes('alimentación') || combined.includes('alimentacion')) {
+    foodTerms.push('alimentación');
+  }
+  if (combined.includes('comida')) {
+    foodTerms.push('comida');
+  }
+  if (combined.includes('pienso')) {
+    foodTerms.push('pienso');
+  }
+  if (combined.includes('croquetas')) {
+    foodTerms.push('croquetas');
+  }
+  if (combined.includes('dieta')) {
+    foodTerms.push('dieta');
+  }
+  
+  // Extract age-related terms
+  const ageTerms = [];
+  if (combined.match(/\b(cachorro|cachorros|puppy|joven)\b/)) {
+    ageTerms.push('cachorro');
+  }
+  if (combined.match(/\b(adulto|adultos|adult)\b/) || combined.match(/\b\d+\s*años?\b/)) {
+    // If age is mentioned (e.g., "4 años"), it's likely an adult
+    ageTerms.push('adulto');
+  }
+  if (combined.match(/\b(senior|anciano|viejo|mayor)\b/)) {
+    ageTerms.push('senior');
+  }
+  
+  // Build search query prioritizing food terms + species + age
+  const searchParts = [];
+  if (foodTerms.length > 0) {
+    searchParts.push(...foodTerms);
+  }
+  if (species.length > 0) {
+    searchParts.push(...species);
+  }
+  if (ageTerms.length > 0) {
+    searchParts.push(...ageTerms);
+  }
+  
+  // If we have good terms, use them; otherwise fall back to current message
+  if (searchParts.length > 0) {
+    const optimizedQuery = searchParts.join(' ');
+    logger.debug('Extracted search terms from conversation', { 
+      original: currentMessage, 
+      optimized: optimizedQuery,
+      extracted: { foodTerms, species, ageTerms }
+    });
+    return optimizedQuery;
+  }
+  
+  // Fallback: use current message but try to enhance it
+  // If current message doesn't have food terms but conversation does, add them
+  const currentLower = currentMessage.toLowerCase();
+  if (!currentLower.match(/\b(alimentaci[oó]n|comida|pienso|dieta)\b/) && foodTerms.length > 0) {
+    // Add food term to current message
+    return `${foodTerms[0]} ${currentMessage}`;
+  }
+  
+  return currentMessage;
 }
 
 /**
