@@ -2,7 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { query, getClient } from '../config/database.js';
 import { detectRedFlags } from './redFlagService.js';
 import { getTemplate, getWelcomeMessage } from './templateService.js';
-import { searchProducts, formatProductsForContext, formatProductCard, broadCategorySearch, validateProductNamesInResponse, getProductsBySpecies } from './productService.js';
+import { searchProducts, formatProductsForContext, formatProductCard, broadCategorySearch, validateProductNamesInResponse } from './productService.js';
 import { findClinicsByPostalCode, formatClinicsForChat, extractPostalCode, formatClinicCard } from './clinicService.js';
 import { searchVademecums } from './vademecumService.js';
 import { generateChatResponse } from './openaiService.js';
@@ -100,24 +100,12 @@ export async function processMessage({ sessionId, message, conversationId, produ
   let catalogContext = '';
   let recommendedProducts = [];
   try {
-    // Extract species from message for better search
-    const speciesFilter = extractSpeciesFromMessage(message);
-    
-    let products = await searchProducts(message, { 
-      limit: 5,
-      ...(speciesFilter && { species: speciesFilter })
-    });
+    let products = await searchProducts(message, { limit: 5 });
 
     // If no products found with primary search, try broader category search
     if (products.length === 0) {
       logger.info('No products found with primary search, trying broad category search', { message });
       products = await broadCategorySearch(message, 5);
-    }
-
-    // If still no products and we detected a species, try searching by species only
-    if (products.length === 0 && speciesFilter) {
-      logger.info('No products found, trying species-only search', { species: speciesFilter });
-      products = await getProductsBySpecies(speciesFilter, 5);
     }
 
     if (products.length > 0) {
@@ -159,15 +147,16 @@ export async function processMessage({ sessionId, message, conversationId, produ
   );
 
   // 12. Post-validate: ensure product names in the response match DB exactly
-  // This validates against ALL products in the database, not just recommended ones
   let validatedMessage = aiResponse.message;
-  try {
-    validatedMessage = await validateProductNamesInResponse(
-      aiResponse.message,
-      recommendedProducts
-    );
-  } catch (err) {
-    logger.warn('Product name validation failed, using original response', { error: err.message });
+  if (recommendedProducts.length > 0) {
+    try {
+      validatedMessage = await validateProductNamesInResponse(
+        aiResponse.message,
+        recommendedProducts
+      );
+    } catch (err) {
+      logger.warn('Product name validation failed, using original response', { error: err.message });
+    }
   }
 
   // 13. Filter product cards: only show products the AI actually mentioned in its response.
@@ -420,28 +409,6 @@ async function getConversationHistory(conversationId) {
     [conversationId]
   );
   return result.rows;
-}
-
-/**
- * Extract species (dog/cat) from user message for better product search
- * @param {string} message - User message
- * @returns {string|null} - Species filter or null
- */
-function extractSpeciesFromMessage(message) {
-  const normalized = normalizeText(message);
-  
-  // Dog-related keywords
-  const dogKeywords = ['perro', 'perra', 'can', 'canino', 'yorkshire', 'terrier', 'labrador', 'pastor', 'bulldog', 'chihuahua', 'beagle', 'doberman', 'rottweiler', 'husky', 'golden', 'mestizo perro'];
-  // Cat-related keywords
-  const catKeywords = ['gato', 'gata', 'felino', 'persa', 'siames', 'british', 'scottish', 'maine', 'ragdoll', 'mestizo gato'];
-  
-  const hasDog = dogKeywords.some(keyword => containsKeyword(normalized, keyword));
-  const hasCat = catKeywords.some(keyword => containsKeyword(normalized, keyword));
-  
-  if (hasDog && !hasCat) return 'perro';
-  if (hasCat && !hasDog) return 'gato';
-  
-  return null;
 }
 
 /**
