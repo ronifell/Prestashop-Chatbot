@@ -64,6 +64,7 @@ export function formatClinicsForChat(clinics) {
     if (c.phone) text += `   📞 ${c.phone}\n`;
     if (c.email) text += `   ✉️ ${c.email}\n`;
     if (c.website) text += `   🌐 ${c.website}\n`;
+    if (c.notes) text += `   📝 ${c.notes}\n`;
     text += '\n';
   });
 
@@ -104,6 +105,7 @@ export function formatClinicCard(clinic) {
     email: clinic.email,
     website: clinic.website,
     isEmergency: clinic.is_emergency,
+    notes: clinic.notes,
   };
 }
 
