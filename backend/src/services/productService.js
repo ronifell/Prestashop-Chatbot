@@ -7,6 +7,281 @@ import logger from '../utils/logger.js';
  */
 
 /**
+ * Search products by category names (exact match, accent-insensitive)
+ * @param {Array<string>} categoryNames - Array of category names to search
+ * @param {Object} filters - Optional filters { species, limit, categoryFilters }
+ * @returns {Array} - Array of product objects
+ */
+export async function searchProductsByCategories(categoryNames, filters = {}) {
+  const { species, limit = 5, categoryFilters = {} } = filters;
+  
+  if (!categoryNames || categoryNames.length === 0) return [];
+
+  // Build category conditions (accent-insensitive, case-insensitive)
+  const categoryConditions = [];
+  const params = [];
+  let paramIdx = 1;
+  
+  // Identify specific subcategories (those with "/" or known patterns)
+  const specificSubcategories = categoryNames.filter(cn => 
+    cn.includes('/') || 
+    cn.includes('ARTICULAR') || 
+    cn.includes('RENAL') || 
+    cn.includes('GASTROINTESTINAL') || 
+    cn.includes('BUCODENTAL') || 
+    cn.includes('ÓTICO') ||
+    cn.includes('OTICO')
+  );
+  
+  // Identify parent categories (SALUD, NUTRICIÓN, HIGIENE, etc.)
+  const parentCategories = categoryNames.filter(cn => 
+    !cn.includes('/') && 
+    !cn.includes('ARTICULAR') && 
+    !cn.includes('RENAL') && 
+    !cn.includes('GASTROINTESTINAL') && 
+    !cn.includes('BUCODENTAL') && 
+    !cn.includes('ÓTICO') &&
+    !cn.includes('OTICO')
+  );
+
+  for (const catName of categoryNames) {
+    // Normalize: remove accents for matching (both original and normalized)
+    const normalized = catName.toUpperCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .trim();
+    
+    // Prioritize subcategory matches - check subcategory first
+    categoryConditions.push(`(
+      subcategory ILIKE $${paramIdx}
+      OR subcategory ILIKE $${paramIdx + 1}
+      OR category ILIKE $${paramIdx}
+      OR category ILIKE $${paramIdx + 1}
+    )`);
+    // Add both original and normalized versions
+    params.push(`%${catName}%`);
+    params.push(`%${normalized}%`);
+    paramIdx += 2;
+  }
+
+  // If we have both parent categories and specific subcategories, 
+  // we want to prioritize subcategory matches but not exclude parent category matches
+  // The ORDER BY will handle prioritization, so we don't need a restrictive filter here
+  // Just ensure we're searching correctly
+
+  let sql = `
+    SELECT 
+      id, name, brand, category, subcategory, species, price,
+      product_url, add_to_cart_url, image_url, description,
+      indications, requires_prescription
+    FROM products
+    WHERE is_active = true
+      AND (${categoryConditions.join(' OR ')})
+  `;
+  
+  // If we have specific subcategories, prioritize them in the WHERE clause
+  // This ensures we get subcategory matches first, then fall back to category matches
+  if (specificSubcategories.length > 0 && parentCategories.length > 0) {
+    // When we have both parent category and subcategory, 
+    // first try to match subcategory, then parent category
+    // This is handled by ORDER BY prioritization below
+  }
+
+  // Apply category filters (e.g., for DIETA VETERINARIA, filter by name containing "renal")
+  if (categoryFilters && Object.keys(categoryFilters).length > 0) {
+    for (const [catKey, filter] of Object.entries(categoryFilters)) {
+      const normalizedCat = catKey.toUpperCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim();
+      
+      // Check if this category matches
+      const catMatch = categoryNames.some(cn => {
+        const norm = cn.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+        return norm.includes(normalizedCat) || normalizedCat.includes(norm);
+      });
+
+      if (catMatch && filter.must_match_name_any && filter.must_match_name_any.length > 0) {
+        const nameConditions = filter.must_match_name_any.map((term) => {
+          params.push(`%${term.toLowerCase()}%`);
+          return `LOWER(name) LIKE $${paramIdx++}`;
+        });
+        sql += ` AND (${nameConditions.join(' OR ')})`;
+      } else if (catMatch && filter.should_match_name_any && filter.should_match_name_any.length > 0) {
+        // For "should_match", filter to products that match at least one of the terms
+        // This helps narrow down results within a broad category (e.g., DIETA VETERINARIA)
+        const nameConditions = filter.should_match_name_any.map((term) => {
+          params.push(`%${term.toLowerCase()}%`);
+          return `LOWER(name) LIKE $${paramIdx++}`;
+        });
+        sql += ` AND (${nameConditions.join(' OR ')})`;
+      }
+    }
+  }
+
+  if (species) {
+    sql += ` AND LOWER(species) LIKE $${paramIdx}`;
+    params.push(`%${species.toLowerCase()}%`);
+    paramIdx++;
+  }
+
+  // Prioritize subcategory matches - products in CONDROPROTECTOR/ARTICULAR subcategory
+  // should appear before products that just match the parent category
+  if (specificSubcategories.length > 0) {
+    const subcatChecks = specificSubcategories.map(subcat => {
+      const normalized = subcat.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+      // Escape single quotes for SQL
+      const escapedSubcat = subcat.replace(/'/g, "''");
+      const escapedNormalized = normalized.replace(/'/g, "''");
+      return `(subcategory ILIKE '%${escapedSubcat}%' OR subcategory ILIKE '%${escapedNormalized}%')`;
+    }).join(' OR ');
+    sql += ` ORDER BY 
+      CASE 
+        WHEN ${subcatChecks} THEN 1
+        ELSE 2
+      END,
+      name ASC LIMIT $${paramIdx}`;
+  } else {
+    sql += ` ORDER BY name ASC LIMIT $${paramIdx}`;
+  }
+  params.push(limit);
+
+  try {
+    const result = await query(sql, params);
+    return result.rows;
+  } catch (error) {
+    logger.error('Category search error', { error: error.message, categoryNames, filters });
+    return [];
+  }
+}
+
+/**
+ * Search products by name with synonyms
+ * @param {Array<string>} synonyms - Array of synonym terms to search
+ * @param {Object} filters - Optional filters { species, limit }
+ * @returns {Array} - Array of product objects
+ */
+export async function searchProductsByNameSynonyms(synonyms, filters = {}) {
+  const { species, limit = 5 } = filters;
+  
+  if (!synonyms || synonyms.length === 0) return [];
+
+  const conditions = [];
+  const params = [];
+  let paramIdx = 1;
+
+  for (const synonym of synonyms) {
+    // Use ILIKE for case-insensitive matching (more reliable than similarity)
+    conditions.push(`(
+      name ILIKE $${paramIdx}
+      OR description ILIKE $${paramIdx}
+      OR indications ILIKE $${paramIdx}
+      OR category ILIKE $${paramIdx}
+      OR subcategory ILIKE $${paramIdx}
+    )`);
+    params.push(`%${synonym}%`);
+    paramIdx++;
+  }
+
+  let sql = `
+    SELECT 
+      id, name, brand, category, subcategory, species, price,
+      product_url, add_to_cart_url, image_url, description,
+      indications, requires_prescription
+    FROM products
+    WHERE is_active = true
+      AND (${conditions.join(' OR ')})
+  `;
+
+  if (species) {
+    sql += ` AND LOWER(species) LIKE $${paramIdx}`;
+    params.push(`%${species.toLowerCase()}%`);
+    paramIdx++;
+  }
+
+  sql += ` ORDER BY name ASC LIMIT $${paramIdx}`;
+  params.push(limit);
+
+  try {
+    const result = await query(sql, params);
+    return result.rows;
+  } catch (error) {
+    logger.error('Synonym search error', { error: error.message, synonyms, filters });
+    return [];
+  }
+}
+
+/**
+ * Intelligent product search using intent-based strategy
+ * @param {string} searchTerms - Search query
+ * @param {Object} intentData - Intent detection result { categoryCandidates, categoryFilters, searchStrategy, nameSynonyms }
+ * @param {Object} filters - Optional filters { species, limit }
+ * @returns {Array} - Array of product objects
+ */
+export async function searchProductsWithIntent(searchTerms, intentData, filters = {}) {
+  const { categoryCandidates, categoryFilters, searchStrategy, nameSynonyms } = intentData;
+  const { species, limit = 5 } = filters;
+
+  let results = [];
+
+  // Strategy 1: Search by categories first
+  if (searchStrategy.includes('categories_first') || searchStrategy.includes('category_then_name')) {
+    if (categoryCandidates && categoryCandidates.length > 0) {
+      // Flatten category candidates
+      const flatCategories = [];
+      for (const path of categoryCandidates) {
+        for (const cat of path) {
+          if (!flatCategories.includes(cat)) {
+            flatCategories.push(cat);
+          }
+        }
+      }
+
+      if (flatCategories.length > 0) {
+        results = await searchProductsByCategories(flatCategories, {
+          species,
+          limit,
+          categoryFilters
+        });
+        
+        if (results.length > 0) {
+          logger.debug('Found products by category', { 
+            categories: flatCategories, 
+            count: results.length 
+          });
+          return results;
+        }
+      }
+    }
+  }
+
+  // Strategy 2: Search by name with synonyms
+  if (searchStrategy.includes('name_with_synonyms') || searchStrategy.includes('category_then_name')) {
+    const searchTermsArray = [searchTerms];
+    if (nameSynonyms && nameSynonyms.length > 0) {
+      searchTermsArray.push(...nameSynonyms);
+    }
+
+    results = await searchProductsByNameSynonyms(searchTermsArray, { species, limit });
+    
+    if (results.length > 0) {
+      logger.debug('Found products by name/synonyms', { 
+        terms: searchTermsArray, 
+        count: results.length 
+      });
+      return results;
+    }
+  }
+
+  // Strategy 3: Fallback to original search
+  if (results.length === 0) {
+    results = await searchProducts(searchTerms, { species, limit });
+  }
+
+  return results;
+}
+
+/**
  * Search products using full-text search (Spanish)
  * @param {string} searchTerms - Search query
  * @param {Object} filters - Optional filters { species, category, maxPrice, limit }
@@ -391,6 +666,43 @@ export async function getProductsByCategory(category, limit = 10) {
 }
 
 /**
+ * Find alternative products when exact match is not found
+ * Returns products from related categories or similar names
+ * @param {string} originalQuery - Original search query
+ * @param {Array<string>} relatedCategories - Related category names to try
+ * @param {Object} filters - Optional filters { species, limit }
+ * @returns {Array} - Array of product objects (max 2-3)
+ */
+export async function findAlternativeProducts(originalQuery, relatedCategories = [], filters = {}) {
+  const { species, limit = 3 } = filters;
+  const alternatives = [];
+
+  // Try related categories
+  if (relatedCategories && relatedCategories.length > 0) {
+    const categoryResults = await searchProductsByCategories(relatedCategories, {
+      species,
+      limit: 2
+    });
+    alternatives.push(...categoryResults);
+  }
+
+  // If still not enough, try broad category search
+  if (alternatives.length < limit && originalQuery) {
+    const broadResults = await broadCategorySearch(originalQuery, limit - alternatives.length);
+    // Avoid duplicates
+    const existingIds = new Set(alternatives.map(p => p.id));
+    for (const product of broadResults) {
+      if (!existingIds.has(product.id)) {
+        alternatives.push(product);
+        if (alternatives.length >= limit) break;
+      }
+    }
+  }
+
+  return alternatives.slice(0, limit);
+}
+
+/**
  * Get products by species
  */
 export async function getProductsBySpecies(species, limit = 10) {
@@ -406,14 +718,20 @@ export async function getProductsBySpecies(species, limit = 10) {
 
 /**
  * Format product data for the AI context.
- * Includes strict instructions to use only these exact product names.
+ * Includes instructions to use exact product names but allows flexibility for alternatives.
  * @param {Array} products
+ * @param {boolean} isAlternative - Whether these are alternative products (not exact match)
  * @returns {string}
  */
-export function formatProductsForContext(products) {
+export function formatProductsForContext(products, isAlternative = false) {
   if (!products || products.length === 0) return '';
 
-  let header = `IMPORTANTE: Estos son los ÚNICOS productos que puedes recomendar. Usa el NOMBRE EXACTO tal cual aparece aquí (copia y pega). Si ninguno encaja exactamente con lo que busca el cliente, recomienda el MÁS SIMILAR de esta lista y explica por qué podría servirle.\n\n`;
+  let header;
+  if (isAlternative) {
+    header = `PRODUCTOS ALTERNATIVOS DISPONIBLES:\nNo tenemos un producto exacto, pero estas opciones podrían ser útiles. Usa el NOMBRE EXACTO tal cual aparece aquí. Explica por qué podrían servirle y ofrece más información si necesita.\n\n`;
+  } else {
+    header = `PRODUCTOS RELEVANTES DEL CATÁLOGO:\nEstos son productos que podrían encajar con lo que busca. Usa el NOMBRE EXACTO tal cual aparece aquí (copia y pega). Si ninguno encaja perfectamente, recomienda el MÁS SIMILAR y explica por qué podría servirle.\n\n`;
+  }
 
   const productList = products.map((p, i) => {
     let text = `${i + 1}. NOMBRE EXACTO: "${p.name}"`;
@@ -421,6 +739,7 @@ export function formatProductsForContext(products) {
     if (p.price) text += `\n   Precio: ${p.price}€`;
     if (p.species) text += `\n   Especie: ${p.species}`;
     if (p.category) text += `\n   Categoría: ${p.category}`;
+    if (p.subcategory) text += `\n   Subcategoría: ${p.subcategory}`;
     if (p.product_url) text += `\n   Enlace: ${p.product_url}`;
     if (p.description) text += `\n   Descripción: ${p.description.substring(0, 200)}`;
     if (p.indications) text += `\n   Indicaciones: ${p.indications}`;

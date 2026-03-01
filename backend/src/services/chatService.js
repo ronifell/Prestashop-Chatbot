@@ -2,7 +2,16 @@ import { v4 as uuidv4 } from 'uuid';
 import { query, getClient } from '../config/database.js';
 import { detectRedFlags } from './redFlagService.js';
 import { getTemplate, getWelcomeMessage } from './templateService.js';
-import { searchProducts, formatProductsForContext, formatProductCard, broadCategorySearch, validateProductNamesInResponse } from './productService.js';
+import { 
+  searchProducts, 
+  searchProductsWithIntent,
+  findAlternativeProducts,
+  formatProductsForContext, 
+  formatProductCard, 
+  broadCategorySearch, 
+  validateProductNamesInResponse 
+} from './productService.js';
+import { detectIntent, getNormalizedCategoryNames, isSupportIntent } from './intentService.js';
 import { findClinicsByPostalCode, formatClinicsForChat, extractPostalCode, formatClinicCard } from './clinicService.js';
 import { searchVademecums } from './vademecumService.js';
 import { generateChatResponse } from './openaiService.js';
@@ -15,14 +24,17 @@ import logger from '../utils/logger.js';
  */
 
 // Patterns that suggest user wants medical advice (triggers medical_limit)
+// IMPORTANT: These should only trigger for actual diagnosis/prescription requests, NOT for educational questions
 const MEDICAL_REQUEST_PATTERNS = [
-  'que dosis', 'cuanta dosis', 'dosis recomendada',
-  'que le doy', 'que medicamento', 'que le puedo dar',
+  'que dosis', 'cuanta dosis', 'dosis recomendada', 'cuanta cantidad',
+  'que medicamento le doy', 'que medicamento darle',
   'diagnostico', 'diagnosticar', 'que enfermedad tiene',
   'que le pasa', 'que tiene mi', 'esta enfermo',
   'recetame', 'prescribeme', 'necesito receta',
-  'sustituir medicamento', 'cambiar medicamento', 'alternativa a',
+  'sustituir medicamento', 'cambiar medicamento',
   'interpretar analisis', 'interpretar resultados',
+  // Note: Questions about composition, general info (e.g., "qué debe tener un pienso para diabetes") 
+  // are NOT blocked - they are educational and allowed
 ];
 
 // Patterns that suggest prescription medication inquiry
@@ -74,15 +86,27 @@ export async function processMessage({ sessionId, message, conversationId, produ
   }
 
   // 5. Check for medical request patterns (limit template)
+  // BUT: Allow educational questions (e.g., "qué composición debe tener", "qué características")
   const normalizedMsg = normalizeText(message);
-  const isMedicalRequest = MEDICAL_REQUEST_PATTERNS.some(p => containsKeyword(normalizedMsg, p));
-  if (isMedicalRequest) {
-    const medicalResponse = await handleMedicalLimit(convId);
-    return {
-      conversationId: convId,
-      ...medicalResponse,
-      processingTimeMs: Date.now() - startTime,
-    };
+  
+  // Check if it's an educational question (should NOT be blocked)
+  const isEducationalQuestion = containsKeyword(normalizedMsg, 'composicion') || 
+                                containsKeyword(normalizedMsg, 'caracteristicas') ||
+                                containsKeyword(normalizedMsg, 'debe tener') ||
+                                containsKeyword(normalizedMsg, 'deberia tener') ||
+                                containsKeyword(normalizedMsg, 'informacion general');
+  
+  // Only block if it's a medical request AND not an educational question
+  if (!isEducationalQuestion) {
+    const isMedicalRequest = MEDICAL_REQUEST_PATTERNS.some(p => containsKeyword(normalizedMsg, p));
+    if (isMedicalRequest) {
+      const medicalResponse = await handleMedicalLimit(convId);
+      return {
+        conversationId: convId,
+        ...medicalResponse,
+        processingTimeMs: Date.now() - startTime,
+      };
+    }
   }
 
   // 6. Check for prescription medication inquiry
@@ -99,25 +123,97 @@ export async function processMessage({ sessionId, message, conversationId, produ
   // 7. Build conversation history for OpenAI (needed for product search context)
   const history = await getConversationHistory(convId);
 
-  // 8. Search for relevant products in catalog using conversation context
+  // 8. Detect intent and search for relevant products in catalog
   let catalogContext = '';
   let recommendedProducts = [];
+  let hasAlternatives = false;
   try {
-    // Extract search terms from conversation history to build better query
+    // Detect intent from user message
+    const intentData = detectIntent(message);
+    logger.debug('Intent detected', { 
+      intent: intentData.intent, 
+      message: message.substring(0, 100),
+      categoryCandidates: intentData.categoryCandidates,
+      searchStrategy: intentData.searchStrategy
+    });
+
+    // Extract search terms from conversation history
     const searchTerms = extractSearchTermsFromConversation(history, message);
-    logger.debug('Product search terms extracted', { originalMessage: message, searchTerms });
+    
+    // Extract species from conversation if available
+    const species = extractSpeciesFromConversation(history, message);
 
-    let products = await searchProducts(searchTerms, { limit: 5 });
+    let products = [];
 
-    // If no products found with primary search, try broader category search
-    if (products.length === 0) {
-      logger.info('No products found with primary search, trying broad category search', { searchTerms });
-      products = await broadCategorySearch(searchTerms, 5);
+    // Use intent-based search if intent is detected
+    if (intentData.intent && intentData.intent !== 'SUPPORT_SHOP') {
+      products = await searchProductsWithIntent(searchTerms, intentData, {
+        species,
+        limit: 5
+      });
+
+      // If no products found, try to find alternatives
+      if (products.length === 0) {
+        logger.info('No products found with intent search, looking for alternatives', { 
+          intent: intentData.intent,
+          categoryCandidates: intentData.categoryCandidates
+        });
+        
+        // Get related categories for alternatives
+        const relatedCategories = getNormalizedCategoryNames(intentData.categoryCandidates);
+        products = await findAlternativeProducts(searchTerms, relatedCategories, {
+          species,
+          limit: 3
+        });
+        hasAlternatives = products.length > 0;
+      }
+    } else {
+      // Fallback to standard search
+      products = await searchProducts(searchTerms, { species, limit: 5 });
+      
+      // If still no results, try broad category search
+      if (products.length === 0) {
+        logger.info('No products found with primary search, trying broad category search', { searchTerms });
+        products = await broadCategorySearch(searchTerms, 5);
+        hasAlternatives = products.length > 0;
+      }
     }
 
     if (products.length > 0) {
-      catalogContext = formatProductsForContext(products);
+      catalogContext = formatProductsForContext(products, hasAlternatives);
       recommendedProducts = products.map(formatProductCard);
+      
+      // Extract category information from products
+      // Note: Currently using category names since category_id mapping from PrestaShop
+      // hasn't been bootstrapped yet (see Fix.md lines 843-845)
+      // TODO: Once category_name → category_id map is built, use actual PrestaShop category IDs
+      const categoryNames = [...new Set(products.map(p => p.category).filter(Boolean))];
+      const topIds = products.map(p => p.id);
+      
+      // Log as specified in Fix.md line 846: {intent, query, category_ids, results_count, top_ids}
+      // Currently logging category names until PrestaShop category_id mapping is implemented
+      logger.info('Product search completed', {
+        intent: intentData.intent || 'none',
+        query: searchTerms,
+        category_ids: categoryNames, // TODO: Replace with actual PrestaShop category IDs after bootstrap
+        category_names: categoryNames, // Category names for reference
+        results_count: products.length,
+        top_ids: topIds,
+        isAlternative: hasAlternatives,
+        species: species || 'none',
+        search_strategy: intentData.searchStrategy || []
+      });
+    } else {
+      // Log even when no results found
+      logger.info('No products found after all search strategies', { 
+        intent: intentData.intent || 'none',
+        query: searchTerms,
+        category_ids: [], // Empty array when no results
+        results_count: 0,
+        top_ids: [],
+        category_candidates: intentData.categoryCandidates || [],
+        search_strategy: intentData.searchStrategy || []
+      });
     }
   } catch (err) {
     logger.warn('Product search failed during chat', { error: err.message });
@@ -163,10 +259,26 @@ export async function processMessage({ sessionId, message, conversationId, produ
     }
   }
 
-  // 13. Filter product cards: only show products the AI actually mentioned in its response.
-  //     If the AI asked a clarifying question (e.g. "Dime raza, años...") without
-  //     recommending specific products, do NOT show product cards to the user.
-  const mentionedProducts = filterMentionedProducts(validatedMessage, recommendedProducts);
+  // 13. Filter product cards: show products that the AI mentioned, or if products were found
+  //     and the AI is asking clarifying questions, show them anyway so the user can see options.
+  //     This improves UX by showing relevant products even when the bot needs more info.
+  let mentionedProducts = filterMentionedProducts(validatedMessage, recommendedProducts);
+  
+  // If no products were mentioned but we have products and the AI is asking a question,
+  // show the products anyway (user can see options while providing more info)
+  if (mentionedProducts.length === 0 && recommendedProducts.length > 0) {
+    // Check if the response is asking a question (contains question marks and common question words)
+    const isAskingQuestion = /[¿?]/.test(validatedMessage) && 
+      /\b(es|tiene|quiere|busca|necesita|dime|cuéntame|puedes|me puedes|cuál|qué|cuánto|cuánta)\b/i.test(validatedMessage);
+    
+    if (isAskingQuestion) {
+      // Show up to 3 products when asking questions, so user can see options
+      mentionedProducts = recommendedProducts.slice(0, 3);
+      logger.debug('Showing products while AI asks clarifying question', { 
+        productCount: mentionedProducts.length 
+      });
+    }
+  }
 
   // 14. Save assistant response
   const productIds = mentionedProducts.map(p => p.id);
@@ -413,6 +525,24 @@ async function getConversationHistory(conversationId) {
     [conversationId]
   );
   return result.rows;
+}
+
+/**
+ * Extract species from conversation
+ * @param {Array} history - Conversation history
+ * @param {string} currentMessage - Current message
+ * @returns {string|null} - Species (perro/gato) or null
+ */
+function extractSpeciesFromConversation(history, currentMessage) {
+  const combined = `${history.map(m => m.content).join(' ')} ${currentMessage}`.toLowerCase();
+  
+  if (combined.includes('perro') || combined.includes('can') || combined.includes('perros')) {
+    return 'perro';
+  }
+  if (combined.includes('gato') || combined.includes('felino') || combined.includes('gatos')) {
+    return 'gato';
+  }
+  return null;
 }
 
 /**
